@@ -21,6 +21,7 @@ export interface ToolEntry {
 export interface AuditInput {
   email?: string
   teamSize: number
+  useCase: UseCase
   tools: ToolEntry[]
 }
 
@@ -52,3 +53,4 @@ export interface Audit {
   input: AuditInput
   result: AuditResult
 }
+

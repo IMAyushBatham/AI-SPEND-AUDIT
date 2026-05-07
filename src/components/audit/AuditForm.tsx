@@ -19,6 +19,7 @@ import { Separator } from '@/components/ui/separator'
 import ToolCard from './ToolCard'
 import { auditFormSchema, type AuditFormValues } from '@/lib/validators/audit'
 import { USE_CASES } from '@/lib/constants/tools'
+import { runAudit } from '@/lib/audit/engine'
 
 const STORAGE_KEY = 'ai-spend-audit-form'
 
@@ -76,8 +77,10 @@ export default function AuditForm() {
   }, [watch])
 
   const onSubmit: SubmitHandler<AuditFormValues> = async (data) => {
+    const result = runAudit(data)
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
-    router.push('/results/preview')
+    localStorage.setItem('ai-spend-audit-result', JSON.stringify(result))
+    router.push(`/results/${result.id}`)
   }
 
   const totalMonthly = watch('tools').reduce((sum, tool) => {

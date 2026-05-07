@@ -19,7 +19,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className={`${geist.className} min-h-screen flex flex-col bg-background text-foreground antialiased`}>
+      <body suppressHydrationWarning className={`${geist.className} min-h-screen flex flex-col bg-background text-foreground antialiased`}>
         <Navbar />
         <main className="flex-1">{children}</main>
         <Footer />
