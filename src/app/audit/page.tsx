@@ -1,3 +1,5 @@
+import AuditForm from '@/components/audit/AuditForm'
+
 export default function AuditPage() {
   return (
     <section className="max-w-3xl mx-auto px-4 py-16">
@@ -5,10 +7,7 @@ export default function AuditPage() {
       <p className="text-muted-foreground mb-8">
         Add your AI tools below to get a full savings report.
       </p>
-      {/* Day 2: AuditForm component goes here */}
-      <div className="border border-dashed border-border rounded-xl p-12 text-center text-muted-foreground">
-        Audit form coming Day 2
-      </div>
+      <AuditForm />
     </section>
   )
 }
