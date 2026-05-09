@@ -2,38 +2,10 @@ import { PRICING } from './pricing'
 import type { ToolEntry, Recommendation } from '@/types'
 
 function monthlyTotal(tool: ToolEntry): number {
-  const cost = tool.costPerSeat * tool.seats
-  return tool.billingCycle === 'annual' ? cost : cost
+  return tool.costPerSeat * tool.seats
 }
 
-function makeRecommendation(
-  tool: ToolEntry,
-  recommendedPlan: string,
-  recommendedCost: number,
-  reason: string
-): Recommendation | null {
-  const currentMonthly = monthlyTotal(tool)
-  const monthlySavings = currentMonthly - recommendedCost
-  if (monthlySavings <= 0) return null
-
-  return {
-    toolId: tool.id,
-    toolName: tool.name,
-    currentPlan: tool.plan,
-    currentMonthlyCost: currentMonthly,
-    recommendedPlan,
-    recommendedMonthlyCost: recommendedCost,
-    monthlySavings,
-    annualSavings: monthlySavings * 12,
-    reason,
-  }
-}
-
-// Rule 1: Small team on Business/Enterprise plan
-export function checkOverpricedPlan(
-  tool: ToolEntry,
-  teamSize: number
-): Recommendation | null {
+function findCheaperPlan(tool: ToolEntry, teamSize: number) {
   const pricing = PRICING[tool.name]
   if (!pricing) return null
 
@@ -42,120 +14,141 @@ export function checkOverpricedPlan(
   )
   if (!currentPlan) return null
 
-  // If on business/enterprise and small team
-  const isExpensivePlan =
-    currentPlan.id === 'business' || currentPlan.id === 'enterprise'
-  const isSmallTeam = teamSize <= 10
+  const betterPlan = pricing.plans.find(
+    (p) =>
+      p.pricePerSeat < currentPlan.pricePerSeat &&
+      (!p.minSeats || p.minSeats <= teamSize)
+  )
 
-  if (isExpensivePlan && isSmallTeam) {
-    // Find the pro/plus plan
-    const betterPlan = pricing.plans.find(
-      (p) => p.id === 'pro' || p.id === 'plus' || p.id === 'individual'
-    )
-    if (!betterPlan) return null
+  if (!betterPlan) return null
 
-    const recommendedCost = betterPlan.pricePerSeat * tool.seats
-    return makeRecommendation(
-      tool,
-      betterPlan.label,
-      recommendedCost,
-      `Your team of ${teamSize} doesn't need an enterprise plan. ${betterPlan.label} covers all essential features at a lower cost.`
+  return {
+    plan: betterPlan,
+    monthlyCost: betterPlan.pricePerSeat * tool.seats,
+  }
+}
+
+export interface UseCaseGroup {
+  useCase: string
+  tools: ToolEntry[]
+}
+
+export function analyzeUseCaseGroup(
+  group: UseCaseGroup,
+  teamSize: number
+): Recommendation | null {
+  const { useCase, tools } = group
+
+  if (tools.length === 0) return null
+
+  const totalCurrentCost = tools.reduce((s, t) => s + monthlyTotal(t), 0)
+  const toolNames = tools.map((t) => PRICING[t.name]?.name ?? t.name)
+
+  // Case 1: Multiple tools in same use case — consolidation
+  if (tools.length > 1) {
+    // Find the best single tool to keep (lowest cost that covers the use case)
+    const sorted = [...tools].sort(
+      (a, b) => monthlyTotal(a) - monthlyTotal(b)
     )
+    const keepTool = sorted[0]
+    const removedTools = sorted.slice(1)
+    const removedCost = removedTools.reduce((s, t) => s + monthlyTotal(t), 0)
+
+    // Check if keeping tool can be optimized too
+    const cheaper = findCheaperPlan(keepTool, teamSize)
+    const keepCost = cheaper
+      ? cheaper.monthlyCost
+      : monthlyTotal(keepTool)
+
+    const recommendedCost = keepCost
+    const monthlySavings = totalCurrentCost - recommendedCost
+
+    if (monthlySavings <= 0) return null
+
+    const keepPricing = PRICING[keepTool.name]
+    const recommendedPlan = cheaper
+      ? `${keepPricing?.name ?? keepTool.name} ${cheaper.plan.label}`
+      : `${keepPricing?.name ?? keepTool.name} ${keepTool.plan} only`
+
+    return {
+      toolId: `usecase-${useCase}`,
+      toolName: toolNames.join(' + '),
+      currentPlan: tools.map((t) => `${PRICING[t.name]?.name ?? t.name} ${t.plan}`).join(', '),
+      currentMonthlyCost: totalCurrentCost,
+      recommendedPlan,
+      recommendedMonthlyCost: recommendedCost,
+      monthlySavings,
+      annualSavings: monthlySavings * 12,
+      reason: `Both ${toolNames.join(' and ')} serve overlapping ${useCase.replace('_', ' ')} functionality. Consolidating into ${keepPricing?.name ?? keepTool.name} eliminates $${removedCost}/month of redundant spend with minimal loss in capability.`,
+    }
+  }
+
+  // Case 2: Single tool — find best optimization
+  const tool = tools[0]
+  const currentCost = monthlyTotal(tool)
+  const pricing = PRICING[tool.name]
+
+  if (!pricing) return null
+
+  // Check overpriced plan
+  const cheaper = findCheaperPlan(tool, teamSize)
+  if (cheaper) {
+    const monthlySavings = currentCost - cheaper.monthlyCost
+    if (monthlySavings > 0) {
+      return {
+        toolId: `usecase-${useCase}`,
+        toolName: pricing.name,
+        currentPlan: tool.plan,
+        currentMonthlyCost: currentCost,
+        recommendedPlan: cheaper.plan.label,
+        recommendedMonthlyCost: cheaper.monthlyCost,
+        monthlySavings,
+        annualSavings: monthlySavings * 12,
+        reason: `Your team of ${teamSize} is on ${tool.plan} but ${cheaper.plan.label} covers all essential ${useCase.replace('_', ' ')} features at a lower cost.`,
+      }
+    }
+  }
+
+  // Check excess seats
+  if (tool.seats > teamSize * 1.1) {
+    const currentPlan = pricing.plans.find(
+      (p) => p.label.toLowerCase() === tool.plan.toLowerCase()
+    )
+    if (currentPlan) {
+      const recommendedCost = currentPlan.pricePerSeat * teamSize
+      const monthlySavings = currentCost - recommendedCost
+      if (monthlySavings > 0) {
+        return {
+          toolId: `usecase-${useCase}`,
+          toolName: pricing.name,
+          currentPlan: `${tool.plan} (${tool.seats} seats)`,
+          currentMonthlyCost: currentCost,
+          recommendedPlan: `${tool.plan} (${teamSize} seats)`,
+          recommendedMonthlyCost: recommendedCost,
+          monthlySavings,
+          annualSavings: monthlySavings * 12,
+          reason: `You have ${tool.seats} seats but only ${teamSize} team members. Reducing to ${teamSize} seats saves $${monthlySavings}/month immediately.`,
+        }
+      }
+    }
+  }
+
+  // Check annual billing
+  if (tool.billingCycle === 'monthly' && currentCost >= 50) {
+    const annualCost = currentCost * 0.83
+    const monthlySavings = currentCost - annualCost
+    return {
+      toolId: `usecase-${useCase}`,
+      toolName: pricing.name,
+      currentPlan: `${tool.plan} (Monthly)`,
+      currentMonthlyCost: currentCost,
+      recommendedPlan: `${tool.plan} (Annual)`,
+      recommendedMonthlyCost: annualCost,
+      monthlySavings,
+      annualSavings: monthlySavings * 12,
+      reason: `Switching ${pricing.name} to annual billing saves ~17% — $${monthlySavings.toFixed(0)}/month or $${(monthlySavings * 12).toFixed(0)}/year with no change in features.`,
+    }
   }
 
   return null
-}
-
-// Rule 2: Too many seats vs team size
-export function checkExcessSeats(
-  tool: ToolEntry,
-  teamSize: number
-): Recommendation | null {
-  const pricing = PRICING[tool.name]
-  if (!pricing) return null
-
-  const excessRatio = tool.seats / teamSize
-  if (excessRatio <= 1.2) return null // within 20% is fine
-
-  const optimalSeats = teamSize
-  const currentPlan = pricing.plans.find(
-    (p) => p.label.toLowerCase() === tool.plan.toLowerCase()
-  )
-  if (!currentPlan) return null
-
-  const recommendedCost = currentPlan.pricePerSeat * optimalSeats
-  const currentCost = monthlyTotal(tool)
-  if (recommendedCost >= currentCost) return null
-
-  return makeRecommendation(
-    tool,
-    `${tool.plan} (${optimalSeats} seats)`,
-    recommendedCost,
-    `You have ${tool.seats} seats but only ${teamSize} team members. Reducing to ${optimalSeats} seats saves money immediately.`
-  )
-}
-
-// Rule 3: Duplicate overlapping tools (2 chat tools, 2 IDE tools)
-export function checkDuplicateCategory(
-  tool: ToolEntry,
-  allTools: ToolEntry[]
-): Recommendation | null {
-  const pricing = PRICING[tool.name]
-  if (!pricing) return null
-
-  const sameCategory = allTools.filter((t) => {
-    const p = PRICING[t.name]
-    return p && p.category === pricing.category && t.id !== tool.id
-  })
-
-  if (sameCategory.length === 0) return null
-
-  const currentCost = monthlyTotal(tool)
-  if (currentCost === 0) return null
-
-  return makeRecommendation(
-    tool,
-    'Consider consolidating',
-    0,
-    `You're paying for multiple ${pricing.category} tools (${sameCategory.map((t) => t.name).join(', ')}). Consolidating to one tool could eliminate this cost entirely.`
-  )
-}
-
-// Rule 4: Annual billing discount opportunity
-export function checkAnnualDiscount(tool: ToolEntry): Recommendation | null {
-  if (tool.billingCycle === 'annual') return null
-
-  const currentCost = monthlyTotal(tool)
-  if (currentCost === 0) return null
-
-  // Most tools offer ~17% discount for annual billing
-  const annualMonthlyCost = currentCost * 0.83
-  const monthlySavings = currentCost - annualMonthlyCost
-
-  if (monthlySavings < 5) return null // not worth it under $5/mo
-
-  return makeRecommendation(
-    tool,
-    `${tool.plan} (Annual)`,
-    annualMonthlyCost,
-    `Switching to annual billing typically saves ~17%. That's $${monthlySavings.toFixed(0)}/month or $${(monthlySavings * 12).toFixed(0)}/year.`
-  )
-}
-
-// Rule 5: High API spend — suggest prepaid credits
-export function checkApiSpend(tool: ToolEntry): Recommendation | null {
-  const pricing = PRICING[tool.name]
-  if (!pricing || pricing.category !== 'api') return null
-
-  const currentCost = monthlyTotal(tool)
-  if (currentCost < 100) return null // only relevant for higher spenders
-
-  const discountedCost = currentCost * 0.85 // prepaid typically saves ~15%
-
-  return makeRecommendation(
-    tool,
-    'Prepaid Credits',
-    discountedCost,
-    `At $${currentCost}/month on API usage, switching to prepaid credits can save ~15% through volume discounts.`
-  )
 }

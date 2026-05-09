@@ -59,15 +59,22 @@ export default function AuditForm() {
     name: 'tools',
   })
 
-  useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY)
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved)
-        methods.reset(parsed)
-      } catch {}
-    }
-  }, [])
+ useEffect(() => {
+  const saved = localStorage.getItem(STORAGE_KEY)
+  if (saved) {
+    try {
+      const parsed = JSON.parse(saved)
+      // Ensure each tool has a unique id
+      if (parsed.tools) {
+        parsed.tools = parsed.tools.map((t: any) => ({
+          ...t,
+          id: crypto.randomUUID(),
+        }))
+      }
+      methods.reset(parsed)
+    } catch {}
+  }
+}, [])
 
   useEffect(() => {
     const subscription = watch((values) => {

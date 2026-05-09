@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import SavingsHero from '@/components/results/SavingsHero'
 import RecommendationCard from '@/components/results/RecommendationCard'
 import SummaryCard from '@/components/results/SummaryCard'
+import LeadCaptureForm from '@/components/results/LeadCaptureForm'
 import { Button } from '@/components/ui/button'
 import { sortRecommendationsBySavings } from '@/lib/audit/utils'
 import type { AuditInput, AuditResult } from '@/types'
@@ -14,6 +15,9 @@ export default function ResultsPage() {
   const router = useRouter()
   const [input, setInput] = useState<AuditInput | null>(null)
   const [result, setResult] = useState<AuditResult | null>(null)
+  const [showLead, setShowLead] = useState(false)
+  const [shareUrl, setShareUrl] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     try {
@@ -34,6 +38,19 @@ export default function ResultsPage() {
       router.push('/audit')
     }
   }, [])
+
+  const handleCopy = async (url: string) => {
+    const full = `${window.location.origin}${url}`
+    await navigator.clipboard.writeText(full)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  const handleShareSuccess = (url: string) => {
+    setShareUrl(url)
+    setShowLead(false)
+    handleCopy(url)
+  }
 
   if (!input || !result) {
     return (
@@ -57,9 +74,9 @@ export default function ResultsPage() {
       {sorted.length > 0 ? (
         <div className="space-y-4">
           <h3 className="text-lg font-semibold">Recommendations</h3>
-          {sorted.map((rec, i) => (
-            <RecommendationCard key={rec.toolId} recommendation={rec} index={i} />
-          ))}
+   {sorted.map((rec, i) => (
+  <RecommendationCard key={`${i}-${rec.recommendedPlan}`} recommendation={rec} index={i} />
+))}
         </div>
       ) : (
         <div className="text-center py-12 text-muted-foreground border rounded-xl">
@@ -67,18 +84,29 @@ export default function ResultsPage() {
         </div>
       )}
 
-      <div className="flex gap-3 pt-4">
+      <div className="flex gap-3 pt-4 flex-wrap">
         <Button variant="outline" onClick={() => router.push('/audit')}>
           ← Edit Audit
         </Button>
-        <Button
-          onClick={() => {
-            navigator.clipboard.writeText(window.location.href)
-          }}
-        >
-          Copy Share Link
-        </Button>
+
+        {shareUrl ? (
+          <Button onClick={() => handleCopy(shareUrl)}>
+            {copied ? 'Copied!' : 'Copy Share Link'}
+          </Button>
+        ) : (
+          <Button onClick={() => setShowLead(true)}>
+            Share Audit →
+          </Button>
+        )}
       </div>
+
+      <LeadCaptureForm
+        input={input}
+        result={result}
+        open={showLead}
+        onClose={() => setShowLead(false)}
+        onSuccess={handleShareSuccess}
+      />
     </section>
   )
 }
