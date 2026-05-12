@@ -74,9 +74,9 @@ export async function POST(req: NextRequest) {
       .single()
 
     if (auditError) {
-      console.error('Audit save error:', auditError)
-      return NextResponse.json({ error: 'Failed to save audit' }, { status: 500 })
-    }
+  console.error('Audit save error:', JSON.stringify(auditError, null, 2))
+  return NextResponse.json({ error: auditError.message ?? 'Failed to save audit' }, { status: 500 })
+}
 
     // Save lead
     const { error: leadError } = await supabase.from('leads').insert({
@@ -95,8 +95,8 @@ export async function POST(req: NextRequest) {
       success: true,
       shareUrl: `/share/${result.shareToken}`,
     })
-  } catch (err) {
-    console.error('Save error:', err)
+  } catch (err: any) {
+  console.error('Save error:', err?.message ?? err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
